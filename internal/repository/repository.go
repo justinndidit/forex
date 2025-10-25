@@ -39,11 +39,14 @@ func (r *ForexRepository) UpdateCountries(ctx context.Context, rowsToInsert []mo
 		r.logger.Error().Err(err).Msg("Failed to begin transaction")
 		return err
 	}
-	// Use defer tx.Rollback(). This will only execute if tx.Commit() is not called.
-	// This is the standard, safer pattern.
 	defer tx.Rollback()
 
-	// Add the charset to the temp table to prevent encoding errors
+	dropTempTableSQL := `DROP TEMPORARY TABLE IF EXISTS temp_countries;`
+	if _, err = tx.ExecContext(ctx, dropTempTableSQL); err != nil {
+		r.logger.Error().Err(err).Msg("Failed to drop old temporary table")
+		return err
+	}
+
 	createTempTableSQL := `
         CREATE TEMPORARY TABLE temp_countries (
             name VARCHAR(256) NOT NULL PRIMARY KEY,
@@ -62,12 +65,9 @@ func (r *ForexRepository) UpdateCountries(ctx context.Context, rowsToInsert []mo
 		return err
 	}
 
-	// --- REFACTOR: Batch Insert into temp table ---
-	// This prevents errors from exceeding max_allowed_packet
 	if len(rowsToInsert) == 0 {
 		r.logger.Info().Msg("No countries to update, skipping bulk insert.")
 	} else {
-		// Prepare the base insert statement
 		stmtSQL := `
             INSERT INTO temp_countries (
                 name, capital, region, population,
@@ -76,7 +76,6 @@ func (r *ForexRepository) UpdateCountries(ctx context.Context, rowsToInsert []mo
             ) VALUES %s
         `
 
-		// Process in batches
 		for i := 0; i < len(rowsToInsert); i += batchSize {
 			end := i + batchSize
 			if end > len(rowsToInsert) {
@@ -96,7 +95,6 @@ func (r *ForexRepository) UpdateCountries(ctx context.Context, rowsToInsert []mo
 				)
 			}
 
-			// Format the final query string for this batch
 			batchStmt := fmt.Sprintf(stmtSQL, strings.Join(valueStrings, ","))
 
 			if _, err = tx.ExecContext(ctx, batchStmt, valueArgs...); err != nil {
@@ -138,7 +136,6 @@ func (r *ForexRepository) UpdateCountries(ctx context.Context, rowsToInsert []mo
 	}
 
 	// If all commands succeeded, commit the transaction
-	// This will return nil if successful, or an error if the commit fails.
 	return tx.Commit()
 }
 

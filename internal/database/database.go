@@ -20,24 +20,32 @@ type Database struct {
 const DatabasePingTimeout = 10
 
 func New(cfg *config.Config, logger *zerolog.Logger) (*Database, error) {
-	// MySQL DSN: user:password@tcp(host:port)/dbname?parseTime=true
-	// We must add parseTime=true to handle time.Time fields
-
-	// Map PostgreSQL sslmode to MySQL tls
-	// This is a basic mapping; 'verify-full' would require more setup
-	tlsMode := "false"
-	if cfg.Database.SSLMode == "require" || cfg.Database.SSLMode == "verify-full" {
+	// --- UPDATED LOGIC ---
+	// Map PostgreSQL sslmode to MySQL tls parameter
+	var tlsMode string
+	switch cfg.Database.SSLMode {
+	case "require", "verify-full":
 		tlsMode = "true"
+	case "skip-verify":
+		// This is the new option to fix the x509 error
+		tlsMode = "skip-verify"
+	case "disable":
+		tlsMode = "false"
+	default:
+		// Default to false (no TLS) if unset or invalid
+		tlsMode = "false"
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&tls=%s",
+	// Build the DSN: user:password@tcp(host:port)/dbname?params
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&tls=%s",
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Host,
 		strconv.Itoa(cfg.Database.Port),
 		cfg.Database.Name,
-		tlsMode,
+		tlsMode, // Use the tlsMode from our switch statement
 	)
+	// --- END OF UPDATE ---
 
 	pool, err := sql.Open("mysql", dsn)
 	if err != nil {
