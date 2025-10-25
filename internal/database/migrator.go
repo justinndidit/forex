@@ -3,63 +3,66 @@ package database
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
-	"net"
-	"net/url"
 	"strconv"
 
 	"github.com/justinndidit/forex/internal/config"
-
-	"github.com/jackc/pgx/v5"
-	tern "github.com/jackc/tern/v2/migrate"
 	"github.com/rs/zerolog"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/mysql" // Import mysql db driver
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
 //go:embed migrations/*.sql
 var migrations embed.FS
 
 func Migrate(ctx context.Context, logger *zerolog.Logger, cfg *config.Config) error {
-	hostPort := net.JoinHostPort(cfg.Database.Host, strconv.Itoa(cfg.Database.Port))
-
-	// URL-encode the password
-	encodedPassword := url.QueryEscape(cfg.Database.Password)
-	dsn := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s",
+	// DSN for golang-migrate: mysql://user:password@tcp(host:port)/dbname
+	migrateDSN := fmt.Sprintf("mysql://%s:%s@tcp(%s:%s)/%s",
 		cfg.Database.User,
-		encodedPassword,
-		hostPort,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		strconv.Itoa(cfg.Database.Port),
 		cfg.Database.Name,
-		cfg.Database.SSLMode,
 	)
 
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		return err
-	}
-	defer conn.Close(ctx)
-
-	m, err := tern.NewMigrator(ctx, conn, "schema_version")
-	if err != nil {
-		return fmt.Errorf("constructing database migrator: %w", err)
-	}
 	subtree, err := fs.Sub(migrations, "migrations")
 	if err != nil {
 		return fmt.Errorf("retrieving database migrations subtree: %w", err)
 	}
-	if err = m.LoadMigrations(subtree); err != nil {
-		return fmt.Errorf("loading database migrations: %w", err)
-	}
-	from, err := m.GetCurrentVersion(ctx)
+
+	sourceInstance, err := iofs.New(subtree, ".")
 	if err != nil {
-		return fmt.Errorf("retreiving current database migration version")
+		return fmt.Errorf("creating migrate source instance: %w", err)
 	}
-	if err := m.Migrate(ctx); err != nil {
-		return err
+
+	m, err := migrate.NewWithSourceInstance("iofs", sourceInstance, migrateDSN)
+	if err != nil {
+		return fmt.Errorf("creating migrate instance: %w", err)
 	}
-	if from == int32(len(m.Migrations)) {
-		logger.Info().Msgf("database schema up to date, version %d", len(m.Migrations))
+
+	currentVersion, dirty, err := m.Version()
+	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
+		return fmt.Errorf("retrieving current migration version: %w", err)
+	}
+	if dirty {
+		return errors.New("database is in a dirty migration state, please fix manually")
+	}
+
+	// Run migrations
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("running database migrations: %w", err)
+	}
+
+	newVersion, _, _ := m.Version()
+	if errors.Is(err, migrate.ErrNoChange) {
+		logger.Info().Msgf("database schema up to date, version %d", currentVersion)
 	} else {
-		logger.Info().Msgf("migrated database schema, from %d to %d", from, len(m.Migrations))
+		logger.Info().Msgf("migrated database schema, from %d to %d", currentVersion, newVersion)
 	}
+
 	return nil
 }

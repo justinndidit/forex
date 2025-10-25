@@ -2,45 +2,46 @@ package database
 
 import (
 	"context"
+	"database/sql" // Use standard database/sql
 	"fmt"
-	"net"
-	"net/url"
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/go-sql-driver/mysql" // Import MySQL driver
 	"github.com/justinndidit/forex/internal/config"
 	"github.com/rs/zerolog"
 )
 
 type Database struct {
-	Pool *pgxpool.Pool
+	Pool *sql.DB // Changed from pgxpool.Pool
 	log  *zerolog.Logger
 }
 
 const DatabasePingTimeout = 10
 
 func New(cfg *config.Config, logger *zerolog.Logger) (*Database, error) {
-	hostPort := net.JoinHostPort(cfg.Database.Host, strconv.Itoa(cfg.Database.Port))
+	// MySQL DSN: user:password@tcp(host:port)/dbname?parseTime=true
+	// We must add parseTime=true to handle time.Time fields
 
-	// URL-encode the password
-	encodedPassword := url.QueryEscape(cfg.Database.Password)
-	dsn := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s",
-		cfg.Database.User,
-		encodedPassword,
-		hostPort,
-		cfg.Database.Name,
-		cfg.Database.SSLMode,
-	)
-
-	pgxPoolConfig, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse pgx pool config: %w", err)
+	// Map PostgreSQL sslmode to MySQL tls
+	// This is a basic mapping; 'verify-full' would require more setup
+	tlsMode := "false"
+	if cfg.Database.SSLMode == "require" || cfg.Database.SSLMode == "verify-full" {
+		tlsMode = "true"
 	}
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), pgxPoolConfig)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&tls=%s",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		strconv.Itoa(cfg.Database.Port),
+		cfg.Database.Name,
+		tlsMode,
+	)
+
+	pool, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pgx pool: %w", err)
+		return nil, fmt.Errorf("failed to open mysql connection: %w", err)
 	}
 
 	database := &Database{
@@ -50,7 +51,9 @@ func New(cfg *config.Config, logger *zerolog.Logger) (*Database, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), DatabasePingTimeout*time.Second)
 	defer cancel()
-	if err = pool.Ping(ctx); err != nil {
+
+	// Use PingContext for database/sql
+	if err = pool.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -61,6 +64,6 @@ func New(cfg *config.Config, logger *zerolog.Logger) (*Database, error) {
 
 func (db *Database) Close() error {
 	db.log.Info().Msg("closing database connection pool")
-	db.Pool.Close()
-	return nil
+	// Close on *sql.DB returns an error
+	return db.Pool.Close()
 }

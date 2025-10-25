@@ -23,43 +23,69 @@ type ExchangeRates struct {
 }
 
 type CountryDBRow struct {
-	ID              int             `json:"id" db:"id"`
-	Name            string          `json:"name" db:"name"`
-	Capital         string          `json:"capital" db:"capital"`
-	Region          string          `json:"region" db:"region"`
-	Population      int64           `json:"population" db:"population"`
-	CurrencyCode    sql.NullString  `json:"currency_code" db:"currency_code"`
-	ExchangeRate    sql.NullFloat64 `json:"exchange_rate" db:"exchange_rate"`
-	EstimatedGDP    sql.NullFloat64 `json:"estimated_gdp" db:"estimated_gdp"`
-	FlagURL         string          `json:"flag_url" db:"flag_url"`
-	LastRefreshedAt time.Time       `json:"last_refreshed_at" db:"last_refreshed_at"`
+	ID              int64
+	Name            string
+	Capital         sql.NullString
+	Region          sql.NullString
+	Population      int64
+	CurrencyCode    sql.NullString
+	ExchangeRate    sql.NullFloat64
+	EstimatedGDP    sql.NullFloat64
+	FlagURL         sql.NullString
+	LastRefreshedAt sql.NullTime // Use sql.NullTime
 }
 
 type CountryResponse struct {
-	ID              int       `json:"id"`
-	Name            string    `json:"name"`
-	Capital         string    `json:"capital"`
-	Region          string    `json:"region"`
-	Population      int64     `json:"population"`
-	CurrencyCode    string    `json:"currency_code"`
-	ExchangeRate    float64   `json:"exchange_rate"`
-	EstimatedGDP    float64   `json:"estimated_gdp"`
-	FlagURL         string    `json:"flag_url"`
-	LastRefreshedAt time.Time `json:"last_refreshed_at"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Capital         *string    `json:"capital"`
+	Region          *string    `json:"region"`
+	Population      int64      `json:"population"`
+	CurrencyCode    *string    `json:"currency_code"`
+	ExchangeRate    *float64   `json:"exchange_rate"`
+	EstimatedGDP    *float64   `json:"estimated_gdp"`
+	FlagURL         *string    `json:"flag_url"`
+	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
 }
 
 func (db *CountryDBRow) ToResponse() CountryResponse {
+	var capital, region, currencyCode, flagURL *string
+	var exchangeRate, estimatedGDP *float64
+	var lastRefreshed *time.Time
+
+	if db.Capital.Valid {
+		capital = &db.Capital.String
+	}
+	if db.Region.Valid {
+		region = &db.Region.String
+	}
+	if db.CurrencyCode.Valid {
+		currencyCode = &db.CurrencyCode.String
+	}
+	if db.FlagURL.Valid {
+		flagURL = &db.FlagURL.String
+	}
+	if db.ExchangeRate.Valid {
+		exchangeRate = &db.ExchangeRate.Float64
+	}
+	if db.EstimatedGDP.Valid {
+		estimatedGDP = &db.EstimatedGDP.Float64
+	}
+	if db.LastRefreshedAt.Valid {
+		lastRefreshed = &db.LastRefreshedAt.Time
+	}
+
 	return CountryResponse{
 		ID:              db.ID,
 		Name:            db.Name,
-		Capital:         db.Capital,
-		Region:          db.Region,
 		Population:      db.Population,
-		CurrencyCode:    db.CurrencyCode.String,  // Will be "" if not valid
-		ExchangeRate:    db.ExchangeRate.Float64, // Will be 0 if not valid
-		EstimatedGDP:    db.EstimatedGDP.Float64, // Will be 0 if not valid
-		FlagURL:         db.FlagURL,
-		LastRefreshedAt: db.LastRefreshedAt,
+		Capital:         capital,
+		Region:          region,
+		CurrencyCode:    currencyCode,
+		ExchangeRate:    exchangeRate,
+		EstimatedGDP:    estimatedGDP,
+		FlagURL:         flagURL,
+		LastRefreshedAt: lastRefreshed,
 	}
 }
 
@@ -79,6 +105,23 @@ type CountryFilters struct {
 }
 
 type Stats struct {
-	TotalCountries int       `json:"total_countries" db:"total_countries"`
-	LastReference  time.Time `json:"last_refreshed_at" db:"last_refreshed_at"`
+	TotalCountries  int          `db:"total_countries"`
+	LastRefreshedAt sql.NullTime `db:"last_refreshed_at"`
+}
+type StatsResponse struct {
+	TotalCountries  int        `json:"total_countries"`
+	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
+}
+
+func (s *Stats) ToResponse() StatsResponse {
+	var lastRefresh *time.Time
+
+	if s.LastRefreshedAt.Valid {
+		lastRefresh = &s.LastRefreshedAt.Time
+	}
+
+	return StatsResponse{
+		TotalCountries:  s.TotalCountries,
+		LastRefreshedAt: lastRefresh,
+	}
 }

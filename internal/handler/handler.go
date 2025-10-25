@@ -95,14 +95,28 @@ func (h *ForexHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	for _, country := range countriesList {
 		dbRow := model.CountryDBRow{
-			Name:            strings.ToLower(country.Name),
-			Capital:         strings.ToLower(country.Capital),
-			Region:          strings.ToLower(country.Region),
-			Population:      country.Population,
-			FlagURL:         country.FlagURL,
-			LastRefreshedAt: refreshTime,
-		}
+			// --- These fields are OK ---
+			Name:       strings.ToLower(country.Name),
+			Population: country.Population,
 
+			// --- Corrected fields ---
+			Capital: sql.NullString{
+				String: strings.ToLower(country.Capital),
+				Valid:  country.Capital != "", // Set to 'true' only if it's not empty
+			},
+			Region: sql.NullString{
+				String: strings.ToLower(country.Region),
+				Valid:  country.Region != "",
+			},
+			FlagURL: sql.NullString{
+				String: country.FlagURL, // No need to lowercase a URL
+				Valid:  country.FlagURL != "",
+			},
+			LastRefreshedAt: sql.NullTime{
+				Time:  refreshTime,
+				Valid: true, // We always set this
+			},
+		}
 		if len(country.Currencies) > 0 {
 			code := country.Currencies[0].Code
 			dbRow.CurrencyCode = sql.NullString{String: code, Valid: true}
@@ -192,6 +206,10 @@ func (h *ForexHandler) HandleGetCountryByName(w http.ResponseWriter, r *http.Req
 	country, err := h.repo.GetCountryByName(r.Context(), param)
 
 	if err != nil {
+		if errors.Is(err, errs.ErrNotFound) {
+			util.WriteJsonError(w, http.StatusNotFound, "Country not found", nil)
+			return
+		}
 		h.logger.Error().Err(err).Msg("Failed to Fetch Countries")
 		util.WriteJsonError(w, http.StatusInternalServerError, "Internal server error", nil)
 		return
@@ -235,7 +253,7 @@ func (h *ForexHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJsonSuccess(w, http.StatusOK, *stats)
+	util.WriteJsonSuccess(w, http.StatusOK, stats.ToResponse())
 }
 
 func (h *ForexHandler) HandleGetImage(w http.ResponseWriter, r *http.Request) {
