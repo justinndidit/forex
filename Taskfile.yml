@@ -1,0 +1,133 @@
+version: '3'
+
+vars:
+  FOREX_DB_DSN: '{{.FOREX_DB_DSN | default ""}}'
+
+tasks:
+  help:
+    desc: print this help message
+    cmds:
+    - task --list-all
+    silent: true
+
+  confirm:
+    desc: confirmation prompt
+    cmds:
+    - |
+      echo -n 'Are you sure? [y/N] ' && read ans && [ ${ans:-N} = y ]
+    silent: true
+    internal: true
+
+  run:
+    desc: run the cmd/forex application
+    cmds:
+    - go run ./cmd/forex
+
+  run:dev:
+    desc: run the cmd/forex application in watch mode
+    cmds:
+    - air
+
+  migrations:new:
+    desc: create a new database migration
+    vars:
+      NAME: '{{.name | default ""}}'
+    cmds:
+    - |
+      if [ -z "{{.NAME}}" ]; then
+        echo "Error: name parameter is required"
+        echo "Usage: task migrations:new name=migration_name"
+        exit 1
+      fi
+    - echo 'Creating migration file for {{.NAME}}...'
+    - tern new -m ./internal/database/migrations {{.NAME}}
+
+  migrations:up:
+    desc: apply all up database migrations
+    deps: [ confirm ]
+    cmds:
+    - echo 'Running up migrations...'
+    - tern migrate -m ./internal/database/migrations --conn-string {{.FOREX_DB_DSN}}
+
+  tidy:
+    desc: format all .go files, and tidy and vendor module dependencies
+    cmds:
+    - echo 'Formatting .go files...'
+    - go fmt ./...
+    - echo 'Tidying module dependencies...'
+    - go mod tidy
+    - echo 'Verifying dependencies...'
+    - go mod verify
+
+# Docker Tasks
+  # docker:build:
+  #   desc: build the forex Docker image
+  #   cmds:
+  #     - echo 'Building Docker image...'
+  #     - docker build -t forex:latest .
+
+  # docker:up:
+  #   desc: start all services with docker-compose
+  #   cmds:
+  #     - echo 'Starting services...'
+  #     - docker compose up -d
+
+  # docker:up:build:
+  #   desc: build and start all services
+  #   cmds:
+  #     - echo 'Building and starting services...'
+  #     - docker compose up -d --build
+
+  # docker:down:
+  #   desc: stop all services
+  #   cmds:
+  #     - echo 'Stopping services...'
+  #     - docker compose down
+
+  # docker:logs:
+  #   desc: view forex logs
+  #   cmds:
+  #     - docker compose logs -f forex
+
+  # docker:logs:all:
+  #   desc: view all service logs
+  #   cmds:
+  #     - docker compose logs -f
+
+  # docker:shell:
+  #   desc: open shell in forex container
+  #   cmds:
+  #     - docker exec -it forex sh
+
+  # docker:clean:
+  #   desc: remove all containers and volumes
+  #   deps: [confirm]
+  #   cmds:
+  #     - echo 'Cleaning up Docker resources...'
+  #     - docker compose down -v
+  #     - docker rmi forex:latest 2>/dev/null || true
+
+  # docker:ps:
+  #   desc: show running containers
+  #   cmds:
+  #     - docker compose ps
+
+  # docker:restart:
+  #   desc: restart the forex service
+  #   cmds:
+  #     - echo 'Restarting forex...'
+  #     - docker compose restart forex
+
+  # dev:
+  #   desc: start full development environment
+  #   cmds:
+  #     - docker compose up -d --build
+  #     - echo 'Services starting... waiting for health checks...'
+  #     - sleep 10
+  #     - echo 'Testing health endpoint...'
+  #     - curl -f http://localhost:8080/kaithheathcheck || echo "App not ready yet, check logs with task docker:logs"
+
+  # dev:stop:
+  #   desc: stop development environment
+  #   cmds:
+  #     - docker compose down
