@@ -194,7 +194,7 @@ tasks:
     desc: cleans dirty database
     cmds:
     - echo 'Cleaning database....'
-    - migrate -database "mysql://postgres:postgres@tcp(localhost:3306)/forex" -path ./internal/database/migrations force 1
+    - migrate -database "{{.FOREX_DB_DSN}}" -path ./internal/database/migrations force 1
 
   tidy:
     desc: format all .go files, and tidy and vendor module dependencies
